@@ -3,30 +3,40 @@
 #include "Window.h"
 #include "MathHelper.h"
 #include "UploadBuffer.h"
+#include "FrameResource.h"
+#include "GeometryGenerator.h"
 #include <DirectXColors.h>
 
 using Microsoft::WRL::ComPtr;
 using namespace DirectX;
 using namespace DirectX::PackedVector;
 
-struct Vertex
+struct RenderItem
 {
-    XMFLOAT3 Pos;
-    XMFLOAT4 Color;
+    RenderItem() = default;
+
+    XMFLOAT4X4 World = MathHelper::Identity4x4();
+
+    int NumFramesDirty = gNumFrameResources;
+
+    UINT ObjCBIndex = -1;
+
+    MeshGeometry* Geo = nullptr;
+
+    D3D12_PRIMITIVE_TOPOLOGY PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+
+    UINT IndexCount = 0;
+    UINT StartIndexLocation = 0;
+    int BaseVertexLocation = 0;
 };
 
-struct ObjectConstants
-{
-    XMFLOAT4X4 WorldViewProj = MathHelper::Identity4x4();
-};
-
-class BoxApp : public Window
+class Renderer : public Window
 {
 public:
-    BoxApp(HINSTANCE hInstance);
-    BoxApp(const BoxApp& rhs) = delete;
-    BoxApp& operator=(const BoxApp& rhs) = delete;
-    ~BoxApp();
+    Renderer(HINSTANCE hInstance);
+    Renderer(const Renderer& rhs) = delete;
+    Renderer& operator=(const Renderer& rhs) = delete;
+    ~Renderer();
 
     virtual bool Initialize()override;
 
@@ -41,28 +51,45 @@ private:
 
     void BuildDescriptorHeaps();
     void BuildConstantBuffers();
-    void BuildRootSignature();
-    void BuildShadersAndInputLayout();
     void BuildBoxGeometry();
-    void BuildPSO();
+
+    void BuildRenderItems();
+    void BuildFrameResources();
+    void BuildConstantBufferViews();
+
+    void UpdateObjectCBs(const GameTimer& gt);
+    void UpdateMainPassCB(const GameTimer& gt);
 
 private:
+
+    std::vector<std::unique_ptr<FrameResource>> mFrameResources;
+    FrameResource* mCurrFrameResource = nullptr;
+    int mCurrFrameResourceIndex = 0;
 
     ComPtr<ID3D12RootSignature> mRootSignature = nullptr;
     ComPtr<ID3D12DescriptorHeap> mCbvHeap = nullptr;
 
+    ComPtr<ID3DBlob> serializedRootSig = nullptr;
+    ComPtr<ID3DBlob> errorBlob = nullptr;
+
+    std::unordered_map<std::string, std::unique_ptr<MeshGeometry>> mGeometries;
+
     std::unique_ptr<UploadBuffer<ObjectConstants>> mObjectCB = nullptr;
 
-    std::unique_ptr<MeshGeometry> mBoxGeo = nullptr;
+    ComPtr<ID3DBlob> mVertexShader = nullptr;
+    ComPtr<ID3DBlob> mPixelShader = nullptr;
 
-    ComPtr<ID3DBlob> mvsByteCode = nullptr;
-    ComPtr<ID3DBlob> mpsByteCode = nullptr;
+    std::vector<std::unique_ptr<RenderItem>> mAllRitems;
+    std::vector<RenderItem*> mOpaqueRitems;
+
+    PassConstants mMainPassCB;
+    UINT mPassCbvOffset = 0;
 
     std::vector<D3D12_INPUT_ELEMENT_DESC> mInputLayout;
 
     ComPtr<ID3D12PipelineState> mPSO = nullptr;
 
-    XMFLOAT4X4 mWorld = MathHelper::Identity4x4();
+    XMFLOAT3 mEyePos = { 0.0f, 0.0f, 0.0f };
     XMFLOAT4X4 mView = MathHelper::Identity4x4();
     XMFLOAT4X4 mProj = MathHelper::Identity4x4();
 

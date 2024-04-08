@@ -10,7 +10,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance,
 
     try
     {
-        BoxApp theApp(hInstance);
+        Renderer theApp(hInstance);
         if (!theApp.Initialize())
             return 0;
 
