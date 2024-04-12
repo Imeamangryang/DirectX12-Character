@@ -19,19 +19,11 @@ bool Renderer::Initialize()
 
     ThrowIfFailed(mCommandList->Reset(mDirectCmdListAlloc.Get(), nullptr));
 
-    // Root Signature ±¸¼º
-    CD3DX12_DESCRIPTOR_RANGE cbvTable0;
-    cbvTable0.Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 0);
-
-    CD3DX12_DESCRIPTOR_RANGE cbvTable1;
-    cbvTable1.Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 1);
-
-    // Root parameter can be a table, root descriptor or root constants.
     CD3DX12_ROOT_PARAMETER slotRootParameter[2];
 
-    // Create root CBVs.
-    slotRootParameter[0].InitAsDescriptorTable(1, &cbvTable0);
-    slotRootParameter[1].InitAsDescriptorTable(1, &cbvTable1);
+    // Create root CBV.
+    slotRootParameter[0].InitAsConstantBufferView(0);
+    slotRootParameter[1].InitAsConstantBufferView(1);
 
     CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(2, slotRootParameter, 0, nullptr, D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
@@ -87,8 +79,6 @@ bool Renderer::Initialize()
     BuildBoxGeometry();
     BuildRenderItems();
     BuildFrameResources();
-    BuildDescriptorHeaps();
-    BuildConstantBufferViews();
 
     // Execute the initialization commands.
     ThrowIfFailed(mCommandList->Close());
@@ -170,15 +160,11 @@ void Renderer::Draw(const GameTimer& gt)
     // Specify the buffers we are going to render to.
     mCommandList->OMSetRenderTargets(1, &CurrentBackBufferView(), true, &DepthStencilView());
 
-    ID3D12DescriptorHeap* descriptorHeaps[] = { mCbvHeap.Get() };
-    mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
-
     mCommandList->SetGraphicsRootSignature(mRootSignature.Get());
 
-    int passCbvIndex = mPassCbvOffset + mCurrFrameResourceIndex;
-    auto passCbvHandle = CD3DX12_GPU_DESCRIPTOR_HANDLE(mCbvHeap->GetGPUDescriptorHandleForHeapStart());
-    passCbvHandle.Offset(passCbvIndex, mCbvSrvUavDescriptorSize);
-    mCommandList->SetGraphicsRootDescriptorTable(1, passCbvHandle);
+    // Bind per-pass constant buffer.  We only need to do this once per-pass.
+    auto passCB = mCurrFrameResource->PassCB->Resource();
+    mCommandList->SetGraphicsRootConstantBufferView(1, passCB->GetGPUVirtualAddress());
 
     UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
 
@@ -193,12 +179,10 @@ void Renderer::Draw(const GameTimer& gt)
         mCommandList->IASetIndexBuffer(&ri->Geo->IndexBufferView());
         mCommandList->IASetPrimitiveTopology(ri->PrimitiveType);
 
-        // Offset to the CBV in the descriptor heap for this object and for this frame resource.
-        UINT cbvIndex = mCurrFrameResourceIndex * (UINT)mOpaqueRitems.size() + ri->ObjCBIndex;
-        auto cbvHandle = CD3DX12_GPU_DESCRIPTOR_HANDLE(mCbvHeap->GetGPUDescriptorHandleForHeapStart());
-        cbvHandle.Offset(cbvIndex, mCbvSrvUavDescriptorSize);
+        D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress();
+        objCBAddress += ri->ObjCBIndex * objCBByteSize;
 
-        mCommandList->SetGraphicsRootDescriptorTable(0, cbvHandle);
+        mCommandList->SetGraphicsRootConstantBufferView(0, objCBAddress);
 
         mCommandList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, 0);
     }
@@ -295,7 +279,7 @@ void Renderer::BuildConstantBuffers()
 void Renderer::BuildBoxGeometry()
 {
     GeometryGenerator geoGen;
-    GeometryGenerator::MeshData box = geoGen.CreateBox(1.0f, 1.0f, 1.0f, 3);
+    GeometryGenerator::MeshData box = geoGen.CreateBox(1.0f, 1.0f, 1.0f, 1);
 
     SubmeshGeometry boxSubmesh;
     boxSubmesh.IndexCount = (UINT)box.Indices32.size();
@@ -309,7 +293,7 @@ void Renderer::BuildBoxGeometry()
         vertices[i].Pos = box.Vertices[i].Position;
         //vertices[i].Normal = box.Vertices[i].Normal;
         //vertices[i].TexC = box.Vertices[i].TexC;
-        vertices[i].Color = XMFLOAT4(0.1f, 0.48f, 0.19f, 1.0f);
+        vertices[i].Color = XMFLOAT4(0.0f, 0.0f, 0.0f, 1.0f);
     }
 
     std::vector<std::uint16_t> indices = box.GetIndices16();
@@ -346,10 +330,10 @@ void Renderer::BuildRenderItems()
 {
     int index = 0;
 
-    for (float z = 0; z < 10; z++) {
-        for (float x = 0; x < 10; x++) {
+    for (float z = -30; z < 30; z++) {
+        for (float x = -30; x < 30; x++) {
             auto boxitem = std::make_unique<RenderItem>();
-            XMStoreFloat4x4(&boxitem->World, XMMatrixTranslation(x, 1.0f, z));
+            XMStoreFloat4x4(&boxitem->World, XMMatrixTranslation(x, GetTerrainHeight(x, z) , z));
             boxitem->ObjCBIndex = index++;
             boxitem->Geo = mGeometries["boxGeo"].get();
             boxitem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
@@ -371,77 +355,6 @@ void Renderer::BuildFrameResources()
     for (int i = 0; i < gNumFrameResources; ++i)
     {
         mFrameResources.push_back(std::make_unique<FrameResource>(md3dDevice.Get(), 1, (UINT)mAllRitems.size()));
-    }
-}
-
-void Renderer::BuildDescriptorHeaps()
-{
-    UINT objCount = (UINT)mOpaqueRitems.size();
-
-    // Need a CBV descriptor for each object for each frame resource,
-    // +1 for the perPass CBV for each frame resource.
-    UINT numDescriptors = (objCount + 1) * gNumFrameResources;
-
-    // Save an offset to the start of the pass CBVs.  These are the last 3 descriptors.
-    mPassCbvOffset = objCount * gNumFrameResources;
-
-    D3D12_DESCRIPTOR_HEAP_DESC cbvHeapDesc;
-    cbvHeapDesc.NumDescriptors = numDescriptors;
-    cbvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-    cbvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-    cbvHeapDesc.NodeMask = 0;
-    ThrowIfFailed(md3dDevice->CreateDescriptorHeap(&cbvHeapDesc,
-        IID_PPV_ARGS(&mCbvHeap)));
-}
-
-void Renderer::BuildConstantBufferViews()
-{
-    UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
-
-    UINT objCount = (UINT)mOpaqueRitems.size();
-
-    // Need a CBV descriptor for each object for each frame resource.
-    for (int frameIndex = 0; frameIndex < gNumFrameResources; ++frameIndex)
-    {
-        auto objectCB = mFrameResources[frameIndex]->ObjectCB->Resource();
-        for (UINT i = 0; i < objCount; ++i)
-        {
-            D3D12_GPU_VIRTUAL_ADDRESS cbAddress = objectCB->GetGPUVirtualAddress();
-
-            // Offset to the ith object constant buffer in the buffer.
-            cbAddress += i * objCBByteSize;
-
-            // Offset to the object cbv in the descriptor heap.
-            int heapIndex = frameIndex * objCount + i;
-            auto handle = CD3DX12_CPU_DESCRIPTOR_HANDLE(mCbvHeap->GetCPUDescriptorHandleForHeapStart());
-            handle.Offset(heapIndex, mCbvSrvUavDescriptorSize);
-
-            D3D12_CONSTANT_BUFFER_VIEW_DESC cbvDesc;
-            cbvDesc.BufferLocation = cbAddress;
-            cbvDesc.SizeInBytes = objCBByteSize;
-
-            md3dDevice->CreateConstantBufferView(&cbvDesc, handle);
-        }
-    }
-
-    UINT passCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(PassConstants));
-
-    // Last three descriptors are the pass CBVs for each frame resource.
-    for (int frameIndex = 0; frameIndex < gNumFrameResources; ++frameIndex)
-    {
-        auto passCB = mFrameResources[frameIndex]->PassCB->Resource();
-        D3D12_GPU_VIRTUAL_ADDRESS cbAddress = passCB->GetGPUVirtualAddress();
-
-        // Offset to the pass cbv in the descriptor heap.
-        int heapIndex = mPassCbvOffset + frameIndex;
-        auto handle = CD3DX12_CPU_DESCRIPTOR_HANDLE(mCbvHeap->GetCPUDescriptorHandleForHeapStart());
-        handle.Offset(heapIndex, mCbvSrvUavDescriptorSize);
-
-        D3D12_CONSTANT_BUFFER_VIEW_DESC cbvDesc;
-        cbvDesc.BufferLocation = cbAddress;
-        cbvDesc.SizeInBytes = passCBByteSize;
-
-        md3dDevice->CreateConstantBufferView(&cbvDesc, handle);
     }
 }
 
@@ -493,4 +406,10 @@ void Renderer::UpdateMainPassCB(const GameTimer& gt)
 
     auto currPassCB = mCurrFrameResource->PassCB.get();
     currPassCB->CopyData(0, mMainPassCB);
+}
+
+float Renderer::GetTerrainHeight(float x, float z)
+{
+    
+    return round(0.2f * (z * sinf(0.1f * x) + x * cosf(0.1f * z)));
 }

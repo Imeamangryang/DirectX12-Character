@@ -60,6 +60,8 @@ private:
     void UpdateObjectCBs(const GameTimer& gt);
     void UpdateMainPassCB(const GameTimer& gt);
 
+    float GetTerrainHeight(float x, float z);
+
 private:
 
     std::vector<std::unique_ptr<FrameResource>> mFrameResources;
