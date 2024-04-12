@@ -21,6 +21,7 @@ struct RenderItem
 
     UINT ObjCBIndex = -1;
 
+    Material* Mat = nullptr;
     MeshGeometry* Geo = nullptr;
 
     D3D12_PRIMITIVE_TOPOLOGY PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
@@ -49,16 +50,14 @@ private:
     virtual void OnMouseUp(WPARAM btnState, int x, int y)override;
     virtual void OnMouseMove(WPARAM btnState, int x, int y)override;
 
-    void BuildDescriptorHeaps();
-    void BuildConstantBuffers();
     void BuildBoxGeometry();
+    void BuildMaterials();
 
     void BuildRenderItems();
     void BuildFrameResources();
-    void BuildConstantBufferViews();
-
     void UpdateObjectCBs(const GameTimer& gt);
     void UpdateMainPassCB(const GameTimer& gt);
+    void UpdateMaterialCBs(const GameTimer& gt);
 
     float GetTerrainHeight(float x, float z);
 
@@ -68,13 +67,16 @@ private:
     FrameResource* mCurrFrameResource = nullptr;
     int mCurrFrameResourceIndex = 0;
 
+    UINT mCbvSrvDescriptorSize = 0;
+
     ComPtr<ID3D12RootSignature> mRootSignature = nullptr;
-    ComPtr<ID3D12DescriptorHeap> mCbvHeap = nullptr;
 
     ComPtr<ID3DBlob> serializedRootSig = nullptr;
     ComPtr<ID3DBlob> errorBlob = nullptr;
 
     std::unordered_map<std::string, std::unique_ptr<MeshGeometry>> mGeometries;
+    std::unordered_map<std::string, std::unique_ptr<Material>> mMaterials;
+    std::unordered_map<std::string, std::unique_ptr<Texture>> mTextures;
 
     std::unique_ptr<UploadBuffer<ObjectConstants>> mObjectCB = nullptr;
 

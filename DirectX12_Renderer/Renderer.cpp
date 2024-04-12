@@ -19,13 +19,17 @@ bool Renderer::Initialize()
 
     ThrowIfFailed(mCommandList->Reset(mDirectCmdListAlloc.Get(), nullptr));
 
-    CD3DX12_ROOT_PARAMETER slotRootParameter[2];
+    mCbvSrvDescriptorSize = md3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+
+    CD3DX12_ROOT_PARAMETER slotRootParameter[3];
 
     // Create root CBV.
     slotRootParameter[0].InitAsConstantBufferView(0);
     slotRootParameter[1].InitAsConstantBufferView(1);
+    slotRootParameter[2].InitAsConstantBufferView(2);
 
-    CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(2, slotRootParameter, 0, nullptr, D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+
+    CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(3, slotRootParameter, 0, nullptr, D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
     HRESULT hr = D3D12SerializeRootSignature(&rootSigDesc, D3D_ROOT_SIGNATURE_VERSION_1, serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
 
@@ -45,7 +49,7 @@ bool Renderer::Initialize()
     mInputLayout =
     {
         { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-        { "COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 }
+        { "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 }
     };
 
     // Pipeline State Object »ý¼º
@@ -64,7 +68,7 @@ bool Renderer::Initialize()
         mPixelShader->GetBufferSize()
     };
     psoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
-    psoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
+    //psoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
     psoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
     psoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
     psoDesc.SampleMask = UINT_MAX;
@@ -77,6 +81,7 @@ bool Renderer::Initialize()
     ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&mPSO)));
 
     BuildBoxGeometry();
+    BuildMaterials();
     BuildRenderItems();
     BuildFrameResources();
 
@@ -129,6 +134,7 @@ void Renderer::Update(const GameTimer& gt)
     }
 
     UpdateObjectCBs(gt);
+    UpdateMaterialCBs(gt);
     UpdateMainPassCB(gt);
 }
 
@@ -164,11 +170,13 @@ void Renderer::Draw(const GameTimer& gt)
 
     // Bind per-pass constant buffer.  We only need to do this once per-pass.
     auto passCB = mCurrFrameResource->PassCB->Resource();
-    mCommandList->SetGraphicsRootConstantBufferView(1, passCB->GetGPUVirtualAddress());
+    mCommandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
 
     UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
+    UINT matCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(MaterialConstants));
 
     auto objectCB = mCurrFrameResource->ObjectCB->Resource();
+    auto matCB = mCurrFrameResource->MaterialCB->Resource();
 
     // For each render item...
     for (size_t i = 0; i < mOpaqueRitems.size(); ++i)
@@ -179,10 +187,12 @@ void Renderer::Draw(const GameTimer& gt)
         mCommandList->IASetIndexBuffer(&ri->Geo->IndexBufferView());
         mCommandList->IASetPrimitiveTopology(ri->PrimitiveType);
 
-        D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress();
-        objCBAddress += ri->ObjCBIndex * objCBByteSize;
+        D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress() + ri->ObjCBIndex * objCBByteSize;
+        D3D12_GPU_VIRTUAL_ADDRESS matCBAddress = matCB->GetGPUVirtualAddress() + ri->Mat->MatCBIndex * matCBByteSize;
+
 
         mCommandList->SetGraphicsRootConstantBufferView(0, objCBAddress);
+        mCommandList->SetGraphicsRootConstantBufferView(1, matCBAddress);
 
         mCommandList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, 0);
     }
@@ -242,38 +252,18 @@ void Renderer::OnMouseMove(WPARAM btnState, int x, int y)
     else if ((btnState & MK_RBUTTON) != 0)
     {
         // Make each pixel correspond to 0.005 unit in the scene.
-        float dx = 0.005f * static_cast<float>(x - mLastMousePos.x);
-        float dy = 0.005f * static_cast<float>(y - mLastMousePos.y);
+        float dx = 0.05f * static_cast<float>(x - mLastMousePos.x);
+        float dy = 0.05f * static_cast<float>(y - mLastMousePos.y);
 
         // Update the camera radius based on input.
         mRadius += dx - dy;
 
         // Restrict the radius.
-        mRadius = MathHelper::Clamp(mRadius, 3.0f, 15.0f);
+        mRadius = MathHelper::Clamp(mRadius, 5.0f, 150.0f);
     }
 
     mLastMousePos.x = x;
     mLastMousePos.y = y;
-}
-
-void Renderer::BuildConstantBuffers()
-{
-    mObjectCB = std::make_unique<UploadBuffer<ObjectConstants>>(md3dDevice.Get(), 1, true);
-
-    UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
-
-    D3D12_GPU_VIRTUAL_ADDRESS cbAddress = mObjectCB->Resource()->GetGPUVirtualAddress();
-    // Offset to the ith object constant buffer in the buffer.
-    int boxCBufIndex = 0;
-    cbAddress += boxCBufIndex * objCBByteSize;
-
-    D3D12_CONSTANT_BUFFER_VIEW_DESC cbvDesc;
-    cbvDesc.BufferLocation = cbAddress;
-    cbvDesc.SizeInBytes = objCBByteSize;
-
-    md3dDevice->CreateConstantBufferView(
-        &cbvDesc,
-        mCbvHeap->GetCPUDescriptorHandleForHeapStart());
 }
 
 void Renderer::BuildBoxGeometry()
@@ -293,7 +283,7 @@ void Renderer::BuildBoxGeometry()
         vertices[i].Pos = box.Vertices[i].Position;
         //vertices[i].Normal = box.Vertices[i].Normal;
         //vertices[i].TexC = box.Vertices[i].TexC;
-        vertices[i].Color = XMFLOAT4(0.0f, 0.0f, 0.0f, 1.0f);
+        vertices[i].Normal = box.Vertices[i].Normal;
     }
 
     std::vector<std::uint16_t> indices = box.GetIndices16();
@@ -326,6 +316,18 @@ void Renderer::BuildBoxGeometry()
     mGeometries[geo->Name] = std::move(geo);
 }
 
+void Renderer::BuildMaterials()
+{
+    auto grass = std::make_unique<Material>();
+    grass->Name = "grass";
+    grass->MatCBIndex = 0;
+    grass->DiffuseAlbedo = XMFLOAT4(0.2f, 0.6f, 0.2f, 1.0f);
+    grass->FresnelR0 = XMFLOAT3(0.01f, 0.01f, 0.01f);
+    grass->Roughness = 0.125f;
+
+    mMaterials["grass"] = std::move(grass);
+}
+
 void Renderer::BuildRenderItems()
 {
     int index = 0;
@@ -335,6 +337,7 @@ void Renderer::BuildRenderItems()
             auto boxitem = std::make_unique<RenderItem>();
             XMStoreFloat4x4(&boxitem->World, XMMatrixTranslation(x, GetTerrainHeight(x, z) , z));
             boxitem->ObjCBIndex = index++;
+            boxitem->Mat = mMaterials["grass"].get();
             boxitem->Geo = mGeometries["boxGeo"].get();
             boxitem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
             boxitem->IndexCount = boxitem->Geo->DrawArgs["box"].IndexCount;
@@ -354,7 +357,7 @@ void Renderer::BuildFrameResources()
 {
     for (int i = 0; i < gNumFrameResources; ++i)
     {
-        mFrameResources.push_back(std::make_unique<FrameResource>(md3dDevice.Get(), 1, (UINT)mAllRitems.size()));
+        mFrameResources.push_back(std::make_unique<FrameResource>(md3dDevice.Get(), 1, (UINT)mAllRitems.size(), (UINT)mMaterials.size()));
     }
 }
 
@@ -376,6 +379,32 @@ void Renderer::UpdateObjectCBs(const GameTimer& gt)
 
             // Next FrameResource need to be updated too.
             e->NumFramesDirty--;
+        }
+    }
+}
+
+void Renderer::UpdateMaterialCBs(const GameTimer& gt)
+{
+    auto currMaterialCB = mCurrFrameResource->MaterialCB.get();
+    for (auto& e : mMaterials)
+    {
+        // Only update the cbuffer data if the constants have changed.  If the cbuffer
+        // data changes, it needs to be updated for each FrameResource.
+        Material* mat = e.second.get();
+        if (mat->NumFramesDirty > 0)
+        {
+            XMMATRIX matTransform = XMLoadFloat4x4(&mat->MatTransform);
+
+            MaterialConstants matConstants;
+            matConstants.DiffuseAlbedo = mat->DiffuseAlbedo;
+            matConstants.FresnelR0 = mat->FresnelR0;
+            matConstants.Roughness = mat->Roughness;
+            XMStoreFloat4x4(&matConstants.MatTransform, XMMatrixTranspose(matTransform));
+
+            currMaterialCB->CopyData(mat->MatCBIndex, matConstants);
+
+            // Next FrameResource need to be updated too.
+            mat->NumFramesDirty--;
         }
     }
 }
@@ -403,6 +432,13 @@ void Renderer::UpdateMainPassCB(const GameTimer& gt)
     mMainPassCB.FarZ = 1000.0f;
     mMainPassCB.TotalTime = gt.TotalTime();
     mMainPassCB.DeltaTime = gt.DeltaTime();
+    mMainPassCB.AmbientLight = { 0.25f, 0.25f, 0.35f, 1.0f };
+    mMainPassCB.Lights[0].Direction = { 0.57735f, -0.57735f, 0.57735f };
+    mMainPassCB.Lights[0].Strength = { 0.6f, 0.6f, 0.6f };
+    mMainPassCB.Lights[1].Direction = { -0.57735f, -0.57735f, 0.57735f };
+    mMainPassCB.Lights[1].Strength = { 0.3f, 0.3f, 0.3f };
+    mMainPassCB.Lights[2].Direction = { 0.0f, -0.707f, -0.707f };
+    mMainPassCB.Lights[2].Strength = { 0.15f, 0.15f, 0.15f };
 
     auto currPassCB = mCurrFrameResource->PassCB.get();
     currPassCB->CopyData(0, mMainPassCB);
