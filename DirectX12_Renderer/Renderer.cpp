@@ -22,6 +22,7 @@ bool Renderer::Initialize()
     mCbvSrvDescriptorSize = md3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
     LoadTextures();
+    BuildDescriptorHeaps();
 
     CD3DX12_DESCRIPTOR_RANGE texTable;
     texTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0);
@@ -47,27 +48,6 @@ bool Renderer::Initialize()
     ThrowIfFailed(hr);
 
     ThrowIfFailed(md3dDevice->CreateRootSignature(0, serializedRootSig->GetBufferPointer(), serializedRootSig->GetBufferSize(), IID_PPV_ARGS(mRootSignature.GetAddressOf())));
-
-    // Create SRV heap
-    D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
-    srvHeapDesc.NumDescriptors = 1;
-    srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-    srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-    ThrowIfFailed(md3dDevice->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&mSrvDescriptorHeap)));
-
-    CD3DX12_CPU_DESCRIPTOR_HANDLE hDescriptor(mSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
-
-    auto grassTex = mTextures["grassTex"]->Resource;
-
-    D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
-    srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-    srvDesc.Format = grassTex->GetDesc().Format;
-    srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-    srvDesc.Texture2D.MostDetailedMip = 0;
-    srvDesc.Texture2D.MipLevels = grassTex->GetDesc().MipLevels;
-    srvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
-
-    md3dDevice->CreateShaderResourceView(grassTex.Get(), &srvDesc, hDescriptor);
 
     // Shader Complie
     mVertexShader = d3dUtil::CompileShader(L"VertexShader.hlsl", nullptr, "VS", "vs_5_0");
@@ -397,6 +377,31 @@ void Renderer::BuildFrameResources()
     }
 }
 
+void Renderer::BuildDescriptorHeaps()
+{
+    // Create SRV heap
+    D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
+    srvHeapDesc.NumDescriptors = 1;
+    srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+    ThrowIfFailed(md3dDevice->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&mSrvDescriptorHeap)));
+
+    CD3DX12_CPU_DESCRIPTOR_HANDLE hDescriptor(mSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
+
+    // Table 0 : grass Texture
+    auto grassTex = mTextures["grassTex"]->Resource;
+
+    D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+    srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc.Format = grassTex->GetDesc().Format;
+    srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc.Texture2D.MostDetailedMip = 0;
+    srvDesc.Texture2D.MipLevels = grassTex->GetDesc().MipLevels;
+    srvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
+
+    md3dDevice->CreateShaderResourceView(grassTex.Get(), &srvDesc, hDescriptor);
+}
+
 void Renderer::UpdateObjectCBs(const GameTimer& gt)
 {
     auto currObjectCB = mCurrFrameResource->ObjectCB.get();
@@ -484,12 +489,32 @@ void Renderer::UpdateMainPassCB(const GameTimer& gt)
 
 void Renderer::LoadTextures()
 {
+    std::unique_ptr<uint8_t[]> textureData;
+    std::vector<D3D12_SUBRESOURCE_DATA> subresources;
+
     auto grassTex = std::make_unique<Texture>();
     grassTex->Name = "grassTex";
-    grassTex->Filename = L"Textures/grass.dds";
-    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
-        mCommandList.Get(), grassTex->Filename.c_str(),
-        grassTex->Resource, grassTex->UploadHeap));
+
+    ThrowIfFailed(LoadDDSTextureFromFile(md3dDevice.Get(), L"Textures/grass.dds", &grassTex->Resource, textureData, subresources));
+
+    const UINT64 uploadBufferSize = GetRequiredIntermediateSize(grassTex->Resource.Get(), 0, static_cast<UINT>(subresources.size()));
+
+    CD3DX12_HEAP_PROPERTIES heapProps(D3D12_HEAP_TYPE_UPLOAD);
+
+    ThrowIfFailed(
+        md3dDevice->CreateCommittedResource(
+            &heapProps,
+            D3D12_HEAP_FLAG_NONE,
+            &CD3DX12_RESOURCE_DESC::Buffer(uploadBufferSize),
+            D3D12_RESOURCE_STATE_GENERIC_READ,
+            nullptr,
+            IID_PPV_ARGS(&grassTex->UploadHeap)));
+
+    UpdateSubresources(mCommandList.Get(), grassTex->Resource.Get(), grassTex->UploadHeap.Get(),
+        0, 0, static_cast<UINT>(subresources.size()), subresources.data());
+    mCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(grassTex->Resource.Get(),
+        D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE));
+
 
     mTextures[grassTex->Name] = std::move(grassTex);
 }

@@ -149,7 +149,6 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="d3dUtil.cpp" />
-    <ClCompile Include="DDSTextureLoader.cpp" />
     <ClCompile Include="FrameResource.cpp" />
     <ClCompile Include="GameTimer.cpp" />
     <ClCompile Include="GeometryGenerator.cpp" />
@@ -161,7 +160,6 @@
   <ItemGroup>
     <ClInclude Include="d3dUtil.h" />
     <ClInclude Include="D3DX12.h" />
-    <ClInclude Include="DDSTextureLoader.h" />
     <ClInclude Include="FrameResource.h" />
     <ClInclude Include="GameTimer.h" />
     <ClInclude Include="GeometryGenerator.h" />

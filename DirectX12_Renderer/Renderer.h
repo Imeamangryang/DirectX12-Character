@@ -63,6 +63,7 @@ private:
     void UpdateMaterialCBs(const GameTimer& gt);
 
     void LoadTextures();
+    void BuildDescriptorHeaps();
 
     float GetTerrainHeight(float x, float z);
     std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> GetStaticSamplers();
