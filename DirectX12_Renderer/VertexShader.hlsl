@@ -14,18 +14,11 @@
 
 cbuffer cbPerObject : register(b0)
 {
-	float4x4 gWorld; 
+    float4x4 gWorld;
+    float4x4 gTexTransform;
 };
 
-cbuffer cbMaterial : register(b1)
-{
-    float4 gDiffuseAlbedo;
-    float3 gFresnelR0;
-    float  gRoughness;
-    float4x4 gMatTransform;
-};
-
-cbuffer cbPass : register(b2)
+cbuffer cbPass : register(b1)
 {
     float4x4 gView;
     float4x4 gInvView;
@@ -45,17 +38,27 @@ cbuffer cbPass : register(b2)
     Light gLights[MaxLights];
 };
 
+cbuffer cbMaterial : register(b2)
+{
+    float4 gDiffuseAlbedo;
+    float3 gFresnelR0;
+    float gRoughness;
+    float4x4 gMatTransform;
+};
+
 struct VS_OUTPUT
 {
     float4 pos : SV_POSITION;
     float3 worldpos : POSITION;
     float3 normal : NORMAL;
+    float2 tex : TEXCOORD;
 };
 
 struct VS_INPUT
 {
     float3 pos : POSITION;
     float3 normal : NORMAL;
+    float2 tex : TEXCOORD;
 };
 
 
@@ -68,6 +71,9 @@ VS_OUTPUT VS(VS_INPUT input) {
     output.normal = mul(input.normal, (float3x3)gWorld);
 
     output.pos = mul(worldpos, gViewProj);
+    
+    float4 tex = mul(float4(input.tex, 0.0f, 1.0f), gTexTransform);
+    output.tex = mul(tex, gMatTransform).xy;
 
 	return output;
 }

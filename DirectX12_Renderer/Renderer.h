@@ -5,6 +5,7 @@
 #include "UploadBuffer.h"
 #include "FrameResource.h"
 #include "GeometryGenerator.h"
+#include "DDSTextureLoader.h"
 #include <DirectXColors.h>
 
 using Microsoft::WRL::ComPtr;
@@ -16,6 +17,8 @@ struct RenderItem
     RenderItem() = default;
 
     XMFLOAT4X4 World = MathHelper::Identity4x4();
+
+    XMFLOAT4X4 TexTransform = MathHelper::Identity4x4();
 
     int NumFramesDirty = gNumFrameResources;
 
@@ -59,7 +62,10 @@ private:
     void UpdateMainPassCB(const GameTimer& gt);
     void UpdateMaterialCBs(const GameTimer& gt);
 
+    void LoadTextures();
+
     float GetTerrainHeight(float x, float z);
+    std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> GetStaticSamplers();
 
 private:
 
@@ -70,6 +76,7 @@ private:
     UINT mCbvSrvDescriptorSize = 0;
 
     ComPtr<ID3D12RootSignature> mRootSignature = nullptr;
+    ComPtr<ID3D12DescriptorHeap> mSrvDescriptorHeap = nullptr;
 
     ComPtr<ID3DBlob> serializedRootSig = nullptr;
     ComPtr<ID3DBlob> errorBlob = nullptr;
