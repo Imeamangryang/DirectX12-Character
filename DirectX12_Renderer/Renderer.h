@@ -1,12 +1,14 @@
 #pragma once
 
 #include "Window.h"
+#include "Camera.h"
 #include "MathHelper.h"
 #include "UploadBuffer.h"
 #include "FrameResource.h"
 #include "GeometryGenerator.h"
 #include "DDSTextureLoader.h"
 #include <DirectXColors.h>
+#include <fbxsdk.h>
 
 using Microsoft::WRL::ComPtr;
 using namespace DirectX;
@@ -53,6 +55,9 @@ private:
     virtual void OnMouseUp(WPARAM btnState, int x, int y)override;
     virtual void OnMouseMove(WPARAM btnState, int x, int y)override;
 
+    void OnKeyboardInput(const GameTimer& gt);
+
+    void BuildDescriptorHeaps();
     void BuildBoxGeometry();
     void BuildMaterials();
 
@@ -63,7 +68,8 @@ private:
     void UpdateMaterialCBs(const GameTimer& gt);
 
     void LoadTextures();
-    void BuildDescriptorHeaps();
+    void LoadCharacters();
+    
 
     float GetTerrainHeight(float x, float z);
     std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> GetStaticSamplers();
@@ -104,6 +110,8 @@ private:
     XMFLOAT3 mEyePos = { 0.0f, 0.0f, 0.0f };
     XMFLOAT4X4 mView = MathHelper::Identity4x4();
     XMFLOAT4X4 mProj = MathHelper::Identity4x4();
+
+    Camera mCamera;
 
     float mTheta = 1.5f * XM_PI;
     float mPhi = XM_PIDIV4;
