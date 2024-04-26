@@ -350,6 +350,7 @@ void Renderer::BuildRenderItems()
 {
     int index = 0;
 
+    // Map Data
     for (float z = -30; z < 30; z++) {
         for (float x = -30; x < 30; x++) {
             auto boxitem = std::make_unique<RenderItem>();
@@ -364,6 +365,30 @@ void Renderer::BuildRenderItems()
             boxitem->BaseVertexLocation = boxitem->Geo->DrawArgs["box"].BaseVertexLocation;
             mAllRitems.push_back(std::move(boxitem));
         }
+    }
+
+    // Character Mesh
+    for (UINT i = 0; i < meshes.size(); i++) {
+        auto mesh = std::make_unique<RenderItem>();
+        XMMATRIX world = XMLoadFloat4x4(&mesh->World);
+
+        XMMATRIX Translation = XMMatrixTranslation(1.0f, 1.0f, 100.0f);
+        XMMATRIX Scaling = XMMatrixScaling(0.01f, 0.01f, 0.01f);
+        XMMATRIX yRotation = XMMatrixRotationX(XMConvertToRadians(-90.0f));
+
+        XMMATRIX TRSMatrix = XMMatrixMultiply(XMMatrixMultiply(Translation, yRotation), Scaling);
+        XMMatrixMultiply(world, TRSMatrix);
+
+        XMStoreFloat4x4(&mesh->World, TRSMatrix);
+
+        mesh->ObjCBIndex = index++;
+        mesh->Geo = mGeometries["Character"].get();
+        mesh->Mat = mMaterials["grass"].get();
+        mesh->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+        mesh->IndexCount = mesh->Geo->DrawArgs[meshes[i].MeshName].IndexCount;
+        mesh->StartIndexLocation = mesh->Geo->DrawArgs[meshes[i].MeshName].StartIndexLocation;
+        mesh->BaseVertexLocation = mesh->Geo->DrawArgs[meshes[i].MeshName].BaseVertexLocation;
+        mAllRitems.push_back(std::move(mesh));
     }
 
     // All the render items are opaque.
@@ -524,7 +549,106 @@ void Renderer::LoadTextures()
 
 void Renderer::LoadCharacters()
 {
-    
+    FbxManager* mfbxManager = FbxManager::Create();
+    FbxIOSettings* ios = FbxIOSettings::Create(mfbxManager, IOSROOT);
+    mfbxManager->SetIOSettings(ios);
+    FbxImporter* mfbxImporter = FbxImporter::Create(mfbxManager, "");
+    FbxScene* mfbxScene = FbxScene::Create(mfbxManager, "");
+
+    mfbxImporter->Initialize("Models/Remy.fbx", -1, mfbxManager->GetIOSettings());
+    mfbxImporter->Import(mfbxScene);
+    mfbxImporter->Destroy();
+
+    FbxNode* lRootNode = mfbxScene->GetRootNode();
+
+    std::vector<Vertex> vertices;
+    std::vector<std::uint16_t> indices;
+
+    for (int k = 0; k < lRootNode->GetChildCount(); k++) {
+        FbxMeshData meshdata;
+
+        FbxNode* mNode = lRootNode->GetChild(k);
+
+        FbxNodeAttribute* attribute = mNode->GetNodeAttribute();
+
+        if (attribute->GetAttributeType() == FbxNodeAttribute::eMesh) {
+            FbxMesh* mesh = mNode->GetMesh();
+            int vertexcount = mesh->GetControlPointsCount();
+
+            for (int i = 0; i < vertexcount; ++i) {
+                Vertex tempvertex;
+                tempvertex.Pos.x = static_cast<float>(mesh->GetControlPointAt(i).mData[0]);
+                tempvertex.Pos.y = static_cast<float>(mesh->GetControlPointAt(i).mData[2]);
+                tempvertex.Pos.z = static_cast<float>(mesh->GetControlPointAt(i).mData[1]);
+
+                vertices.push_back(tempvertex);
+            }
+
+            uint16_t arrIdx[3];
+            int polygonCount = mesh->GetPolygonCount();
+
+
+            for (int i = 0; i < polygonCount; i++) // 삼각형의 개수
+            {
+                for (int j = 0; j < 3; j++) // 삼각형은 세 개의 정점으로 구성
+                {
+                    uint16_t controlPointIndex = mesh->GetPolygonVertex(i, j); // 제어점의 인덱스 추출
+                    arrIdx[j] = controlPointIndex;
+                }
+
+                indices.push_back(arrIdx[0]);
+                indices.push_back(arrIdx[2]);
+                indices.push_back(arrIdx[1]);
+
+            }
+
+            meshdata.MeshName = mesh->GetName();
+            meshdata.VertexSize = vertexcount;
+            meshdata.IndexSize = polygonCount * 3;
+
+            meshes.push_back(meshdata);
+        }
+    }
+
+    const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
+    const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint16_t);
+
+    auto geo = std::make_unique<MeshGeometry>();
+    geo->Name = "Character";
+
+    ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->VertexBufferCPU));
+    CopyMemory(geo->VertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
+
+    ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->IndexBufferCPU));
+    CopyMemory(geo->IndexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
+
+    geo->VertexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
+        mCommandList.Get(), vertices.data(), vbByteSize, geo->VertexBufferUploader);
+
+    geo->IndexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
+        mCommandList.Get(), indices.data(), ibByteSize, geo->IndexBufferUploader);
+
+    geo->VertexByteStride = sizeof(Vertex);
+    geo->VertexBufferByteSize = vbByteSize;
+    geo->IndexFormat = DXGI_FORMAT_R16_UINT;
+    geo->IndexBufferByteSize = ibByteSize;
+
+    UINT indexlocation = 0;
+    UINT vertexlocation = 0;
+
+    for (int i = 0; i < meshes.size(); i++) {
+        SubmeshGeometry submesh;
+        submesh.IndexCount = meshes[i].IndexSize;
+        submesh.StartIndexLocation = indexlocation;
+        submesh.BaseVertexLocation = vertexlocation;
+
+        indexlocation += meshes[i].IndexSize;
+        vertexlocation += meshes[i].VertexSize;
+
+        geo->DrawArgs[meshes[i].MeshName] = submesh;
+    }
+
+    mGeometries[geo->Name] = std::move(geo);
 }
 
 float Renderer::GetTerrainHeight(float x, float z)

@@ -14,6 +14,12 @@ using Microsoft::WRL::ComPtr;
 using namespace DirectX;
 using namespace DirectX::PackedVector;
 
+struct FbxMeshData {
+    std::string MeshName = "";
+    UINT VertexSize = 0;
+    UINT IndexSize = 0;
+};
+
 struct RenderItem
 {
     RenderItem() = default;
@@ -110,6 +116,8 @@ private:
     XMFLOAT3 mEyePos = { 0.0f, 0.0f, 0.0f };
     XMFLOAT4X4 mView = MathHelper::Identity4x4();
     XMFLOAT4X4 mProj = MathHelper::Identity4x4();
+
+    std::vector<FbxMeshData> meshes;
 
     Camera mCamera;
 
