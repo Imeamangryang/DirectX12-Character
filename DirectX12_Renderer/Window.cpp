@@ -27,6 +27,10 @@ Window::~Window()
 {
 	if (md3dDevice != nullptr)
 		FlushCommandQueue();
+
+	ImGui_ImplDX12_Shutdown();
+	ImGui_ImplWin32_Shutdown();
+	ImGui::DestroyContext();
 }
 
 HINSTANCE Window::WindowInst()const
@@ -125,6 +129,16 @@ bool Window::Initialize()
 
 	// Do the initial resize code.
 	OnResize();
+
+
+	// Setup Dear ImGui context
+	IMGUI_CHECKVERSION();
+	ImGui::CreateContext();
+	ImGuiIO& io = ImGui::GetIO();
+	io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
+	io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
+
+	ImGui_ImplWin32_Init(mhMainWnd);
 
 	return true;
 }
@@ -225,6 +239,10 @@ void Window::OnResize()
 
 LRESULT Window::MsgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
+	extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+	if (ImGui_ImplWin32_WndProcHandler(hwnd, msg, wParam, lParam))
+		return true;
+
 	switch (msg)
 	{
 		// WM_ACTIVATE is sent when the window is activated or deactivated.  

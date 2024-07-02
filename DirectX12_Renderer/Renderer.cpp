@@ -25,6 +25,16 @@ bool Renderer::Initialize()
     LoadTextures();
     BuildDescriptorHeaps();
 
+    ImGui_ImplDX12_Init(
+        md3dDevice.Get(),
+        2,
+        DXGI_FORMAT::DXGI_FORMAT_R8G8B8A8_UNORM,
+        mimguiDescriptorHeap.Get(),
+        mimguiDescriptorHeap->GetCPUDescriptorHandleForHeapStart(),
+        mimguiDescriptorHeap->GetGPUDescriptorHandleForHeapStart()
+    );
+
+
     CD3DX12_DESCRIPTOR_RANGE texTable;
     texTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0);
 
@@ -164,7 +174,7 @@ void Renderer::Draw(const GameTimer& gt)
     // Specify the buffers we are going to render to.
     mCommandList->OMSetRenderTargets(1, &CurrentBackBufferView(), true, &DepthStencilView());
 
-    ID3D12DescriptorHeap* descriptorHeaps[] = { mSrvDescriptorHeap.Get() };
+    ID3D12DescriptorHeap* descriptorHeaps[] = { mSrvDescriptorHeap.Get()};
     mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
 
     mCommandList->SetGraphicsRootSignature(mRootSignature.Get());
@@ -200,6 +210,14 @@ void Renderer::Draw(const GameTimer& gt)
 
         mCommandList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, 0);
     }
+
+    ImGui_ImplDX12_NewFrame();
+    ImGui_ImplWin32_NewFrame();
+    ImGui::NewFrame();
+    ImGui::ShowDemoWindow();
+
+    ImGui::Render();
+    ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), mCommandList.Get());
 
     // Indicate a state transition on the resource usage.
     mCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
@@ -409,12 +427,21 @@ void Renderer::BuildDescriptorHeaps()
 {
     // Create SRV heap
     D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
-    srvHeapDesc.NumDescriptors = 1;
+    srvHeapDesc.NumDescriptors = 2;
     srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
     srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
     ThrowIfFailed(md3dDevice->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&mSrvDescriptorHeap)));
 
-    CD3DX12_CPU_DESCRIPTOR_HANDLE hDescriptor(mSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
+    CD3DX12_CPU_DESCRIPTOR_HANDLE srvDescriptor(mSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
+
+    // Create imgui heap
+    D3D12_DESCRIPTOR_HEAP_DESC imguiHeapDesc = {};
+    imguiHeapDesc.NumDescriptors = 2;
+    imguiHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    imguiHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+    ThrowIfFailed(md3dDevice->CreateDescriptorHeap(&imguiHeapDesc, IID_PPV_ARGS(&mimguiDescriptorHeap)));
+
+    //CD3DX12_CPU_DESCRIPTOR_HANDLE imguiDescriptor(mimguiDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
 
     // Table 0 : grass Texture
     auto grassTex = mTextures["grassTex"]->Resource;
@@ -427,7 +454,7 @@ void Renderer::BuildDescriptorHeaps()
     srvDesc.Texture2D.MipLevels = grassTex->GetDesc().MipLevels;
     srvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
 
-    md3dDevice->CreateShaderResourceView(grassTex.Get(), &srvDesc, hDescriptor);
+    md3dDevice->CreateShaderResourceView(grassTex.Get(), &srvDesc, srvDescriptor);
 }
 
 void Renderer::UpdateObjectCBs(const GameTimer& gt)
