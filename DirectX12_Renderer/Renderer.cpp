@@ -15,38 +15,41 @@ Renderer::~Renderer()
 
 bool Renderer::Initialize()
 {
+    // Window & Direct3D 초기화
     if (!Window::Initialize()) return false;
 
+    // Commandlist 초기화
     ThrowIfFailed(mCommandList->Reset(mDirectCmdListAlloc.Get(), nullptr));
 
     mCbvSrvDescriptorSize = md3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
-    LoadCharacters();
+    //LoadCharacters();
     LoadTextures();
     BuildDescriptorHeaps();
 
+    // ImGui 초기화에 수정된 핸들을 사용합니다.
     ImGui_ImplDX12_Init(
         md3dDevice.Get(),
-        2,
-        DXGI_FORMAT::DXGI_FORMAT_R8G8B8A8_UNORM,
-        mimguiDescriptorHeap.Get(),
-        mimguiDescriptorHeap->GetCPUDescriptorHandleForHeapStart(),
-        mimguiDescriptorHeap->GetGPUDescriptorHandleForHeapStart()
+        gNumFrameResources,
+        DXGI_FORMAT_R8G8B8A8_UNORM,
+        mSrvDescriptorHeap.Get(),
+        mSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart(),
+        mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart()
     );
 
-
-    CD3DX12_DESCRIPTOR_RANGE texTable;
-    texTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0);
+    // ========================================================================================================
+    // Root Signature 구성
+    // ========================================================================================================
+    CD3DX12_DESCRIPTOR_RANGE texTable[1];
+    texTable[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0); // t0 : Texture
 
     CD3DX12_ROOT_PARAMETER slotRootParameter[4];
+    slotRootParameter[0].InitAsDescriptorTable(_countof(texTable), texTable, D3D12_SHADER_VISIBILITY_PIXEL); 
+    slotRootParameter[1].InitAsConstantBufferView(0); // b0 : ObjectCB
+    slotRootParameter[2].InitAsConstantBufferView(1); // b1 : PassCB
+    slotRootParameter[3].InitAsConstantBufferView(2); // b2 : MaterialCB
 
-    // Create root CBV.
-    slotRootParameter[0].InitAsDescriptorTable(1, &texTable, D3D12_SHADER_VISIBILITY_PIXEL);
-    slotRootParameter[1].InitAsConstantBufferView(0);
-    slotRootParameter[2].InitAsConstantBufferView(1);
-    slotRootParameter[3].InitAsConstantBufferView(2);
-
-    auto staticSamplers = GetStaticSamplers();
+    auto staticSamplers = GetStaticSamplers(); // Static Sampler
 
     CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(4, slotRootParameter, (UINT)staticSamplers.size(), staticSamplers.data(), D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
@@ -54,7 +57,7 @@ bool Renderer::Initialize()
 
     if (errorBlob != nullptr)
     {
-        ::OutputDebugStringA((char*)errorBlob->GetBufferPointer());
+        ::OutputDebugStringA(static_cast<char*>(errorBlob->GetBufferPointer()));
     }
     ThrowIfFailed(hr);
 
@@ -73,9 +76,9 @@ bool Renderer::Initialize()
     };
 
     // Pipeline State Object 생성
-    D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc;
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
     ZeroMemory(&psoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
-    psoDesc.InputLayout = { mInputLayout.data(), (UINT)mInputLayout.size() };
+    psoDesc.InputLayout = { mInputLayout.data(), static_cast<UINT>(mInputLayout.size()) };
     psoDesc.pRootSignature = mRootSignature.Get();
     psoDesc.VS =
     {
@@ -100,9 +103,24 @@ bool Renderer::Initialize()
     psoDesc.DSVFormat = mDepthStencilFormat;
     ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&mPSO)));
 
+    // ========================================================================================================
+    // 렌더 아이템 구성
+    // ========================================================================================================
     BuildBoxGeometry();
+
+    // ========================================================================================================
+    // 머티리얼 구성
+    // ========================================================================================================
     BuildMaterials();
+
+    // ========================================================================================================
+    // 렌더 아이템 구성
+    // ========================================================================================================
     BuildRenderItems();
+
+    // ========================================================================================================
+    // 프레임 자원 구성
+    // ========================================================================================================
     BuildFrameResources();
 
     // Execute the initialization commands.
@@ -148,38 +166,38 @@ void Renderer::Update(const GameTimer& gt)
 
 void Renderer::Draw(const GameTimer& gt)
 {
-    // Reuse the memory associated with command recording.
-    // We can only reset when the associated command lists have finished execution on the GPU.
+    // 명령 레코딩에 연관된 메모리를 재사용합니다.
+    // 연관된 명령 목록이 GPU에서 실행을 완료했을 때만 재설정할 수 있습니다.
     auto cmdListAlloc = mCurrFrameResource->CmdListAlloc;
-
-    // Reuse the memory associated with command recording.
-    // We can only reset when the associated command lists have finished execution on the GPU.
     ThrowIfFailed(cmdListAlloc->Reset());
 
     // A command list can be reset after it has been added to the command queue via ExecuteCommandList.
     // Reusing the command list reuses memory.
     ThrowIfFailed(mCommandList->Reset(mDirectCmdListAlloc.Get(), mPSO.Get()));
 
+    // Viewport 영역 설정
     mCommandList->RSSetViewports(1, &mScreenViewport);
     mCommandList->RSSetScissorRects(1, &mScissorRect);
 
-    // Indicate a state transition on the resource usage.
+    // 리소스 상태 전이 : Present -> Render Target
     mCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
         D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET));
 
-    // Clear the back buffer and depth buffer.
+    // 백 버퍼와 깊이 버퍼를 클리어
     mCommandList->ClearRenderTargetView(CurrentBackBufferView(), Colors::LightSteelBlue, 0, nullptr);
     mCommandList->ClearDepthStencilView(DepthStencilView(), D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
 
-    // Specify the buffers we are going to render to.
+    // 렌더링할 타겟을 백 버퍼와 깊이 버퍼로 설정
     mCommandList->OMSetRenderTargets(1, &CurrentBackBufferView(), true, &DepthStencilView());
 
+    // Descriptor Heap 설정 : SRV
     ID3D12DescriptorHeap* descriptorHeaps[] = { mSrvDescriptorHeap.Get()};
     mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
 
+    // Root Signature 설정
     mCommandList->SetGraphicsRootSignature(mRootSignature.Get());
 
-    // Bind per-pass constant buffer.  We only need to do this once per-pass.
+    // 상수 버퍼 설정 : PassCB
     auto passCB = mCurrFrameResource->PassCB->Resource();
     mCommandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
 
@@ -274,11 +292,6 @@ void Renderer::OnMouseMove(WPARAM btnState, int x, int y)
 
 void Renderer::OnKeyboardInput(const GameTimer& gt)
 {
-    /*if (GetAsyncKeyState('1') & 0x8000)
-        mIsWireframe = true;
-    else
-        mIsWireframe = false;*/
-
     const float dt = gt.DeltaTime();
 
     if (GetAsyncKeyState('W') & 0x8000)
@@ -427,21 +440,12 @@ void Renderer::BuildDescriptorHeaps()
 {
     // Create SRV heap
     D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
-    srvHeapDesc.NumDescriptors = 2;
+    srvHeapDesc.NumDescriptors = 1;
     srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
     srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
     ThrowIfFailed(md3dDevice->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&mSrvDescriptorHeap)));
 
     CD3DX12_CPU_DESCRIPTOR_HANDLE srvDescriptor(mSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
-
-    // Create imgui heap
-    D3D12_DESCRIPTOR_HEAP_DESC imguiHeapDesc = {};
-    imguiHeapDesc.NumDescriptors = 2;
-    imguiHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-    imguiHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-    ThrowIfFailed(md3dDevice->CreateDescriptorHeap(&imguiHeapDesc, IID_PPV_ARGS(&mimguiDescriptorHeap)));
-
-    //CD3DX12_CPU_DESCRIPTOR_HANDLE imguiDescriptor(mimguiDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
 
     // Table 0 : grass Texture
     auto grassTex = mTextures["grassTex"]->Resource;

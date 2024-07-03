@@ -1,5 +1,6 @@
 #include "Renderer.h"
 
+// Main Entry Point
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance,
     PSTR cmdLine, int showCmd)
 {

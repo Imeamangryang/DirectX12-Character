@@ -420,8 +420,10 @@ bool Window::InitMainWindow()
 
 bool Window::InitDirect3D()
 {
+	// ========================================================================================================
+	// 디버그 레이어 활성화
+	// ========================================================================================================
 #if defined(DEBUG) || defined(_DEBUG) 
-	// Enable the D3D12 debug layer.
 	{
 		ComPtr<ID3D12Debug> debugController;
 		ThrowIfFailed(D3D12GetDebugInterface(IID_PPV_ARGS(&debugController)));
@@ -519,25 +521,26 @@ bool Window::InitDirect3D()
 	return true;
 }
 
+// ========================================================================================================
+// CPU & GPU 작업 동기화
+// ========================================================================================================
 void Window::FlushCommandQueue()
 {
-	// Advance the fence value to mark commands up to this fence point.
+	// Fence 지점까지 Command Queue를 실행하기 위해 Fence 값을 증가시킨다.
 	mCurrentFence++;
 
-	// Add an instruction to the command queue to set a new fence point.  Because we 
-	// are on the GPU timeline, the new fence point won't be set until the GPU finishes
-	// processing all the commands prior to this Signal().
+	// Command Queue에 Signal을 호출하여 Fence 값을 증가시킨다.
 	ThrowIfFailed(mCommandQueue->Signal(mFence.Get(), mCurrentFence));
 
-	// Wait until the GPU has completed commands up to this fence point.
+	// GPU가 지정한 Fence 지점까지 Command Queue를 실행하기 위해 대기한다.
 	if (mFence->GetCompletedValue() < mCurrentFence)
 	{
 		HANDLE eventHandle = CreateEventEx(nullptr, false, false, EVENT_ALL_ACCESS);
 
-		// Fire event when GPU hits current fence.  
+		// GPU가 지정한 Fence 지점까지 도달했을 때, Event를 발생시킨다.
 		ThrowIfFailed(mFence->SetEventOnCompletion(mCurrentFence, eventHandle));
 
-		// Wait until the GPU hits current fence event is fired.
+		// Event가 발생할 때까지 대기한다.
 		WaitForSingleObject(eventHandle, INFINITE);
 		CloseHandle(eventHandle);
 	}
