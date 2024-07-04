@@ -23,7 +23,7 @@ bool Renderer::Initialize()
 
     mCbvSrvDescriptorSize = md3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
-    //LoadCharacters();
+    LoadCharacters();
     LoadTextures();
     BuildDescriptorHeaps();
 
@@ -383,10 +383,11 @@ void Renderer::BuildRenderItems()
     int index = 0;
 
     // Map Data
-    for (float z = -30; z < 30; z++) {
-        for (float x = -30; x < 30; x++) {
+    for (float z = -3; z < 3; z++) {
+        for (float x = -3; x < 3; x++) {
             auto boxitem = std::make_unique<RenderItem>();
-            XMStoreFloat4x4(&boxitem->World, XMMatrixTranslation(x, GetTerrainHeight(x, z) , z));
+            //XMStoreFloat4x4(&boxitem->World, XMMatrixTranslation(x, GetTerrainHeight(x, z) , z));
+            XMStoreFloat4x4(&boxitem->World, XMMatrixTranslation(x, 0.5 , z));
             XMStoreFloat4x4(&boxitem->TexTransform, XMMatrixScaling(1.0f, 1.0f, 1.0f));
             boxitem->ObjCBIndex = index++;
             boxitem->Mat = mMaterials["grass"].get();
@@ -589,6 +590,12 @@ void Renderer::LoadCharacters()
 
     mfbxImporter->Initialize("Models/Remy.fbx", -1, mfbxManager->GetIOSettings());
     mfbxImporter->Import(mfbxScene);
+
+    mfbxScene->GetGlobalSettings().SetAxisSystem(FbxAxisSystem::DirectX);
+
+    FbxGeometryConverter geometryConverter(mfbxManager);
+    geometryConverter.Triangulate(mfbxScene, true);
+
     mfbxImporter->Destroy();
 
     FbxNode* lRootNode = mfbxScene->GetRootNode();
@@ -607,11 +614,12 @@ void Renderer::LoadCharacters()
             FbxMesh* mesh = mNode->GetMesh();
             int vertexcount = mesh->GetControlPointsCount();
 
+            FbxVector4* controlPoints = mesh->GetControlPoints();
             for (int i = 0; i < vertexcount; ++i) {
                 Vertex tempvertex;
-                tempvertex.Pos.x = static_cast<float>(mesh->GetControlPointAt(i).mData[0]);
-                tempvertex.Pos.y = static_cast<float>(mesh->GetControlPointAt(i).mData[2]);
-                tempvertex.Pos.z = static_cast<float>(mesh->GetControlPointAt(i).mData[1]);
+                tempvertex.Pos.x = static_cast<float>(controlPoints[i].mData[0]);
+                tempvertex.Pos.y = static_cast<float>(controlPoints[i].mData[2]);
+                tempvertex.Pos.z = static_cast<float>(controlPoints[i].mData[1]);
 
                 vertices.push_back(tempvertex);
             }
