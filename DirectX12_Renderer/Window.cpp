@@ -130,6 +130,9 @@ bool Window::Initialize()
 	// Do the initial resize code.
 	OnResize();
 
+	for (int i = 0; i < SwapChainBufferCount; i++)
+        mSwapChainBuffer[i]->SetName(L"Swap Chain Buffer");
+	mDepthStencilBuffer->SetName(L"Depth Stencil Buffer");
 
 	// Setup Dear ImGui context
 	IMGUI_CHECKVERSION();

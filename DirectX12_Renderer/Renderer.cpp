@@ -23,7 +23,7 @@ bool Renderer::Initialize()
 
     mCbvSrvDescriptorSize = md3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
-    LoadCharacters();
+    //LoadCharacters();
     LoadTextures();
     BuildDescriptorHeaps();
 
@@ -200,6 +200,7 @@ void Renderer::Draw(const GameTimer& gt)
 
     // 상수 버퍼 설정 : PassCB
     auto passCB = mCurrFrameResource->PassCB->Resource();
+    passCB->SetName(L"Pass Constant Buffer");
     mCommandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
 
     UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
@@ -355,6 +356,9 @@ void Renderer::BuildBoxGeometry()
     geo->IndexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
         mCommandList.Get(), indices.data(), ibByteSize, geo->IndexBufferUploader);
 
+    geo->VertexBufferGPU->SetName(L"Vertex Buffer");
+    geo->IndexBufferGPU->SetName(L"Index Buffer");
+
     geo->VertexByteStride = sizeof(Vertex);
     geo->VertexBufferByteSize = vbByteSize;
     geo->IndexFormat = DXGI_FORMAT_R16_UINT;
@@ -466,6 +470,7 @@ void Renderer::BuildDescriptorHeaps()
 void Renderer::UpdateObjectCBs(const GameTimer& gt)
 {
     auto currObjectCB = mCurrFrameResource->ObjectCB.get();
+    currObjectCB->Resource()->SetName(L"Object Constant Buffer");
     for (auto& e : mAllRitems)
     {
         // Only update the cbuffer data if the constants have changed.  
@@ -490,6 +495,7 @@ void Renderer::UpdateObjectCBs(const GameTimer& gt)
 void Renderer::UpdateMaterialCBs(const GameTimer& gt)
 {
     auto currMaterialCB = mCurrFrameResource->MaterialCB.get();
+    currMaterialCB->Resource()->SetName(L"Material Constant Buffer");
     for (auto& e : mMaterials)
     {
         // Only update the cbuffer data if the constants have changed.  If the cbuffer
@@ -557,7 +563,8 @@ void Renderer::LoadTextures()
     grassTex->Name = "grassTex";
 
     ThrowIfFailed(LoadDDSTextureFromFile(md3dDevice.Get(), L"Textures/grass.dds", &grassTex->Resource, textureData, subresources));
-
+    grassTex->Resource->SetName(L"grass Texture");
+    
     const UINT64 uploadBufferSize = GetRequiredIntermediateSize(grassTex->Resource.Get(), 0, static_cast<UINT>(subresources.size()));
 
     CD3DX12_HEAP_PROPERTIES heapProps(D3D12_HEAP_TYPE_UPLOAD);
