@@ -33,15 +33,16 @@ bool Renderer::Initialize()
         gNumFrameResources,
         DXGI_FORMAT_R8G8B8A8_UNORM,
         mSrvDescriptorHeap.Get(),
-        mSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart(),
-        mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart()
+        CD3DX12_CPU_DESCRIPTOR_HANDLE(mSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart(), 1, mCbvSrvDescriptorSize),
+        CD3DX12_GPU_DESCRIPTOR_HANDLE(mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart(), 1, mCbvSrvDescriptorSize)
     );
 
     // ========================================================================================================
     // Root Signature 备己
     // ========================================================================================================
-    CD3DX12_DESCRIPTOR_RANGE texTable[1];
+    CD3DX12_DESCRIPTOR_RANGE texTable[2];
     texTable[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0); // t0 : Texture
+    texTable[1].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 1); // imgui 府家胶 侩
 
     CD3DX12_ROOT_PARAMETER slotRootParameter[4];
     slotRootParameter[0].InitAsDescriptorTable(_countof(texTable), texTable, D3D12_SHADER_VISIBILITY_PIXEL); 
@@ -440,7 +441,7 @@ void Renderer::BuildDescriptorHeaps()
 {
     // Create SRV heap
     D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
-    srvHeapDesc.NumDescriptors = 1;
+    srvHeapDesc.NumDescriptors = 2;
     srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
     srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
     ThrowIfFailed(md3dDevice->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&mSrvDescriptorHeap)));

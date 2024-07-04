@@ -10,6 +10,8 @@
 #define NUM_SPOT_LIGHTS 0
 #endif
 
+#pragma enable_d3d11_debug_symbols
+
 #include "LightingUtil.hlsl"
 
 Texture2D gDiffuseMap : register(t0);

@@ -12,6 +12,8 @@
 
 #include "LightingUtil.hlsl"
 
+#pragma enable_d3d11_debug_symbols
+
 cbuffer cbPerObject : register(b0)
 {
     float4x4 gWorld;
