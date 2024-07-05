@@ -38,9 +38,6 @@ public:
     HWND      MainWnd()const;
     float     AspectRatio()const;
 
-    bool Get4xMsaaState()const;
-    void Set4xMsaaState(bool value);
-
     int Run();
 
     virtual bool Initialize();
@@ -59,14 +56,6 @@ protected:
 protected:
 
     bool InitMainWindow();
-    bool InitDirect3D();
-
-    // GPU가 모든 커맨드 처리를 마칠때까지 CPU 대기
-    void FlushCommandQueue();
-
-    ID3D12Resource* CurrentBackBuffer()const;
-    D3D12_CPU_DESCRIPTOR_HANDLE CurrentBackBufferView()const;
-    D3D12_CPU_DESCRIPTOR_HANDLE DepthStencilView()const;
 
     // FPS와 시간 계산 함수
     void CalculateFrameStats();
@@ -90,37 +79,7 @@ protected:
     // Used to keep track of the 밺elta-time?and game time (?.4).
     GameTimer mTimer;
 
-    ComPtr<IDXGIFactory4> mdxgiFactory;
-    ComPtr<IDXGISwapChain> mSwapChain;
-    ComPtr<ID3D12Device> md3dDevice;
-
-    ComPtr<ID3D12Fence> mFence;
-    UINT64 mCurrentFence = 0;
-
-    ComPtr<ID3D12CommandQueue> mCommandQueue;
-    ComPtr<ID3D12CommandAllocator> mDirectCmdListAlloc;
-    ComPtr<ID3D12GraphicsCommandList> mCommandList;
-
-    static const int SwapChainBufferCount = 2;
-    int mCurrBackBuffer = 0;
-    ComPtr<ID3D12Resource> mSwapChainBuffer[SwapChainBufferCount];
-    ComPtr<ID3D12Resource> mDepthStencilBuffer;
-
-    ComPtr<ID3D12DescriptorHeap> mRtvHeap;
-    ComPtr<ID3D12DescriptorHeap> mDsvHeap;
-
-    D3D12_VIEWPORT mScreenViewport;
-    D3D12_RECT mScissorRect;
-
-    UINT mRtvDescriptorSize = 0;
-    UINT mDsvDescriptorSize = 0;
-    UINT mCbvSrvUavDescriptorSize = 0;
-
-    // Derived class should set these in derived constructor to customize starting values.
     wstring mMainWndCaption = L"DirectX12 Rendering";
-    D3D_DRIVER_TYPE md3dDriverType = D3D_DRIVER_TYPE_HARDWARE;
-    DXGI_FORMAT mBackBufferFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
-    DXGI_FORMAT mDepthStencilFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
     int mClientWidth = 1920;
     int mClientHeight = 1200;
 };

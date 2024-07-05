@@ -132,7 +132,7 @@
       <Filter>imgui</Filter>
     </ClInclude>
     <ClInclude Include="Datatypes.h">
-      <Filter>Header Files\Object</Filter>
+      <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
